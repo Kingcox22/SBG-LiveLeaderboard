@@ -1,122 +1,176 @@
 using BepInEx;
 using BepInEx.Configuration;
-using HarmonyLib;
 using UnityEngine;
 using Mirror;
+using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace SpectatorLeaderboard
 {
-    [BepInPlugin("com.dan.sbg.leaderboard", "Spectator Leaderboard", "1.0")]
+    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.0.2")]
     public class SpectatorLeaderboardPlugin : BaseUnityPlugin
     {
-        private static ConfigEntry<float> _configSpecInterval;
-        private static ConfigEntry<int> _configLeaderboardCount;
+        private ConfigEntry<float> _genUpdateInterval;
+        private ConfigEntry<int> _genLeaderboardSize;
+        private ConfigEntry<float> _specUpdateInterval;
+        private ConfigEntry<int> _specLeaderboardSize;
 
-        private float _specTimer = 0f;
-        private Transform _cachedHole;
-        private List<string> _leaderboardStrings = new List<string>();
-        private string _spectatingDist = "0m";
-        private bool _isCustomSpectatorActive = false;
+        private float _timer = 0f;
+        private GolfHole _activeHole;
+        
+        private struct LeaderboardEntry
+        {
+            public string Name;
+            public float PlayerDist;
+            public float BallDist;
+        }
+
+        private List<LeaderboardEntry> _leaderboardData = new List<LeaderboardEntry>();
 
         private void Awake()
         {
-            _configSpecInterval = Config.Bind("Spectator", "Update Interval", 5f, "Seconds between leaderboard updates."); 
-            _configLeaderboardCount = Config.Bind("Spectator", "Leaderboard Size", 5, "Number of players to show on the leaderboard.");
+            _genUpdateInterval = Config.Bind("General", "Update Interval", 1f, "Seconds between updates.");
+            _genLeaderboardSize = Config.Bind("General", "Leaderboard Size", 16, "Players to show.");
+            _specUpdateInterval = Config.Bind("Spectator", "Update Interval", 5f, "Seconds between updates when spectating.");
+            _specLeaderboardSize = Config.Bind("Spectator", "Leaderboard Size", 16, "Players to show when spectating.");
 
-            PlayerSpectator.LocalPlayerIsSpectatingChanged += OnGameSpectateChanged; 
-            PlayerSpectator.LocalPlayerStoppedSpectating += OnGameSpectateStopped; 
-
-            var harmony = new Harmony("com.dan.sbg.leaderboard");
-            harmony.PatchAll();
+            Logger.LogInfo("SBG-Live Leaderboard v1.0.2 loaded with MissingFieldException fix.");
         }
 
         private void Update()
         {
-            _specTimer += Time.deltaTime;
-            if (_specTimer >= _configSpecInterval.Value)
+            if (!NetworkClient.active || GolfHoleManager.MainHole == null)
             {
-                _specTimer = 0f;
-                RefreshLeaderboardLogic();
+                if (_leaderboardData.Count > 0) _leaderboardData.Clear();
+                return;
+            }
+
+            bool isSpec = GameManager.LocalPlayerAsSpectator != null;
+            float interval = isSpec ? _specUpdateInterval.Value : _genUpdateInterval.Value;
+
+            _timer += Time.deltaTime;
+            if (_timer >= interval)
+            {
+                _timer = 0f;
+                RefreshLeaderboardData(isSpec);
             }
         }
 
-        private void OnGameSpectateChanged()  
+        private string GetPlayerName(PlayerInfo info)
         {
-            var localSpec = GameObject.FindObjectsByType<PlayerSpectator>(FindObjectsSortMode.None)
-                .FirstOrDefault(s => s.isLocalPlayer);
-            
-            if (localSpec != null)
+            if (info == null) return "Unknown";
+
+            // 1. Try Live Build: Look for 'playerName' on PlayerInfo
+            Type infoType = info.GetType();
+            var liveField = infoType.GetField("playerName", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (liveField != null) return liveField.GetValue(info)?.ToString() ?? "Unknown";
+
+            // 2. Try Early Access: Look for 'PlayerId' component
+            // We use the string "PlayerId" so we don't need the EA DLLs to compile.
+            Component playerIdComponent = info.GetComponent("PlayerId");
+            if (playerIdComponent != null)
             {
-                _isCustomSpectatorActive = localSpec.IsSpectating;
+                Type idType = playerIdComponent.GetType();
+                // The most likely candidates in EA/Mirror builds
+                string[] namesToTry = { "_playerName", "networkedPlayerName", "playerName", "displayName", "Name" };
+
+                foreach (string name in namesToTry)
+                {
+                    // Check for a FIELD (variable)
+                    FieldInfo f = idType.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (f != null) return f.GetValue(playerIdComponent)?.ToString() ?? "Unknown";
+
+                    // Check for a PROPERTY (getter/setter) - This is likely what we missed!
+                    PropertyInfo p = idType.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (p != null) return p.GetValue(playerIdComponent)?.ToString() ?? "Unknown";
+                }
             }
+
+            return "Golfer"; 
         }
 
-        private void OnGameSpectateStopped()
+        private void RefreshLeaderboardData(bool isSpectating)
         {
-            _isCustomSpectatorActive = false;
-            _cachedHole = null;
-        }
+            if (_activeHole == null) _activeHole = GolfHoleManager.MainHole;
+            if (_activeHole == null) return;
 
-        private void RefreshLeaderboardLogic()
-        {
-            if (!_isCustomSpectatorActive) return;
+            Vector3 holePos = _activeHole.transform.position;
+            int maxSize = isSpectating ? _specLeaderboardSize.Value : _genLeaderboardSize.Value;
 
-            if (_cachedHole == null)
+            try 
             {
-                // Updated to include the Desert Main Hole variant
-                GameObject hole = GameObject.Find("Hole") ?? 
-                                 GameObject.Find("Main hole") ?? 
-                                 GameObject.Find("Desert Main Hole");
-                
-                if (hole != null) _cachedHole = hole.transform;
+                var players = GameObject.FindObjectsByType<PlayerGolfer>(FindObjectsSortMode.None)
+                    .Where(p => p != null && p.PlayerInfo != null && p.OwnBall != null)
+                    .Select(p => new LeaderboardEntry
+                    {
+                        // CHANGE THIS LINE: Use the helper method, not the direct field
+                        Name = GetPlayerName(p.PlayerInfo), 
+                        PlayerDist = Vector3.Distance(p.transform.position, holePos),
+                        BallDist = Vector3.Distance(p.OwnBall.transform.position, holePos)
+                    })
+                    .OrderBy(x => x.PlayerDist)
+                    .Take(Mathf.Clamp(maxSize, 1, 50))
+                    .ToList();
+
+                _leaderboardData = players;
             }
-
-            if (_cachedHole == null) return;
-
-            var golfers = GameObject.FindObjectsByType<PlayerGolfer>(FindObjectsSortMode.None)
-                .Where(g => g != null && !CourseManager.IsPlayerSpectator(g))
-                .ToList();
-
-            if (golfers.Count == 0) return;
-
-            var sortedGolfers = golfers
-                .Select(g => new { Golfer = g, Distance = Vector3.Distance(g.transform.position, _cachedHole.position) })
-                .OrderBy(x => x.Distance).ToList();
-
-            _leaderboardStrings.Clear();
-            int displayCount = Mathf.Min(_configLeaderboardCount.Value, sortedGolfers.Count);
-            
-            for (int i = 0; i < displayCount; i++)
+            catch (Exception ex)
             {
-                _leaderboardStrings.Add($"{i + 1}. {sortedGolfers[i].Golfer.name} ({Mathf.Round(sortedGolfers[i].Distance)}m)");
+                // Using BepInEx Logger
+                Logger.LogError($"Leaderboard Refresh Failed: {ex.Message}");
             }
-
-            _spectatingDist = $"{Mathf.Round(sortedGolfers[0].Distance)}m";
         }
 
         private void OnGUI()
         {
-            if (!_isCustomSpectatorActive) return;
+            if (!NetworkClient.active || _leaderboardData.Count == 0) return;
 
-            // Shifted down by 115px + original 15px margin = 130px
-            float xPos = 15f;
-            float yPos = 130f; 
-            float width = 250f;
-            float height = 65f + (_leaderboardStrings.Count * 22f);
+            // Layout settings
+            float xPos = 20f;
+            float yPos = 190f; 
+            float width = 420f; 
+            float rowHeight = 25f;
+            float headerHeight = 35f;
+            float padding = 10f;
+            float nameWidth = 160f;
+            float distWidth = 120f;
 
-            GUI.backgroundColor = new Color(0, 0, 0, 0.9f);
-            Rect guiRect = new Rect(xPos, yPos, width, height);
-            GUI.Box(guiRect, $"<b><size=14><color=white>[HOLE TRACKER]</color></size></b>");
+            float boxHeight = headerHeight + padding + (_leaderboardData.Count * rowHeight) + padding;
 
-            GUIStyle textStyle = new GUIStyle(GUI.skin.label) { richText = true };
-            
-            GUI.Label(new Rect(xPos + 10, yPos + 35, 200, 25), $"<b>Closest:</b> <color=yellow>{_spectatingDist}</color>", textStyle);
-            
-            for (int i = 0; i < _leaderboardStrings.Count; i++)
+            GUI.backgroundColor = new Color(0, 0, 0, 0.9f); 
+            GUI.Box(new Rect(xPos, yPos, width, boxHeight), ""); 
+
+            GUIStyle headerStyle = new GUIStyle(GUI.skin.label) { fontSize = 11, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, richText = true };
+            headerStyle.normal.textColor = Color.white;
+
+            GUIStyle bodyStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter, richText = true };
+            bodyStyle.normal.textColor = Color.white;
+
+            GUIStyle distStyle = new GUIStyle(bodyStyle);
+            distStyle.normal.textColor = new Color(1f, 0.85f, 0f); 
+
+            float currentY = yPos + padding;
+
+            GUI.Label(new Rect(xPos + padding, currentY, nameWidth, headerHeight), "<b>Player Name</b>", headerStyle);
+            GUI.Label(new Rect(xPos + padding + nameWidth, currentY, distWidth, headerHeight), "<b>Player Distance</b>", headerStyle);
+            GUI.Label(new Rect(xPos + padding + nameWidth + distWidth, currentY, distWidth, headerHeight), "<b>Ball Distance</b>", headerStyle);
+
+            currentY += headerHeight;
+
+            GUI.color = new Color(1, 1, 1, 0.5f);
+            GUI.Box(new Rect(xPos + padding, currentY - 5, width - (padding * 2), 2), "");
+            GUI.color = Color.white;
+
+            for (int i = 0; i < _leaderboardData.Count; i++)
             {
-                GUI.Label(new Rect(xPos + 15, yPos + 65 + (i * 22), 220, 25), _leaderboardStrings[i], textStyle);
+                LeaderboardEntry entry = _leaderboardData[i];
+                float rowY = currentY + (i * rowHeight);
+
+                GUI.Label(new Rect(xPos + padding, rowY, nameWidth, rowHeight), $"{i+1}. {entry.Name}", bodyStyle);
+                GUI.Label(new Rect(xPos + padding + nameWidth, rowY, distWidth, rowHeight), $"{entry.PlayerDist:F1}m", distStyle);
+                GUI.Label(new Rect(xPos + padding + nameWidth + distWidth, rowY, distWidth, rowHeight), $"{entry.BallDist:F1}m", distStyle);
             }
         }
     }
