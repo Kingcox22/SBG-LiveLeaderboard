@@ -77,4 +77,7 @@
             <HintPath>$(SUPER_BATTLE_GOLF_PATH)\Super Battle Golf_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
         </Reference>
     </ItemGroup>
+    <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+        <Exec Command="xcopy /Y &quot;$(TargetDir)$(TargetName).dll&quot; &quot;$(SUPER_BATTLE_GOLF_PATH)\BepInEx\plugins\&quot;" />
+    </Target>
 </Project>
