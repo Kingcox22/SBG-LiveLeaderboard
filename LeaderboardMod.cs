@@ -9,7 +9,7 @@ using System.Reflection;
 
 namespace SpectatorLeaderboard
 {
-    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.0.9")]
+    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.1.0")]
     public class SpectatorLeaderboardPlugin : BaseUnityPlugin
     {
         private ConfigEntry<float> _genUpdateInterval;
