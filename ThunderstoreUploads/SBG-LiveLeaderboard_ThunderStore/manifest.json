@@ -1,0 +1,9 @@
+{
+    "name": "SBG_LiveLeaderboard",
+    "version_number": "1.1.0",
+    "website_url": "https://github.com/Kingcox22/SBG-LiveLeaderboard",
+    "description": "Adds current hole leaderboard to Super Battle Golf. Also shows how much distance everyone is from the hole.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
