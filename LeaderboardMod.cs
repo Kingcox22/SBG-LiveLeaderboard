@@ -9,7 +9,7 @@ using System.Reflection;
 
 namespace SpectatorLeaderboard
 {
-    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.1.0")]
+    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.1.1")]
     public class SpectatorLeaderboardPlugin : BaseUnityPlugin
     {
         private ConfigEntry<float> _genUpdateInterval;
@@ -219,16 +219,27 @@ namespace SpectatorLeaderboard
         private string GetPlayerName(PlayerInfo info)
         {
             if (info == null) return "Unknown";
+
+            // 1. Try to get name from the PlayerId component (where your snippet comes from)
+            Component playerId = info.GetComponent("PlayerId");
+            if (playerId != null)
+            {
+                var pType = playerId.GetType();
+                
+                // Check for the Property "PlayerName" (The snippet you just sent)
+                var pProp = pType.GetProperty("PlayerName", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (pProp != null) return pProp.GetValue(playerId)?.ToString() ?? "Unknown";
+                
+                // Fallback for older versions where it was a field "playerName"
+                var pField = pType.GetField("playerName", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (pField != null) return pField.GetValue(playerId)?.ToString() ?? "Unknown";
+            }
+
+            // 2. Fallback check on PlayerInfo itself
             var type = info.GetType();
             var field = type.GetField("playerName", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (field != null) return field.GetValue(info)?.ToString() ?? "Unknown";
 
-            Component playerId = info.GetComponent("PlayerId");
-            if (playerId != null)
-            {
-                var f = playerId.GetType().GetField("playerName", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (f != null) return f.GetValue(playerId)?.ToString() ?? "Unknown";
-            }
             return "Golfer"; 
         }
     }
