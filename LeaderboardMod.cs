@@ -9,7 +9,7 @@ using System.Reflection;
 
 namespace SpectatorLeaderboard
 {
-    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.1.1")]
+    [BepInPlugin("com.kingcox22.sbg.liveleaderboard", "SBG-Live Leaderboard", "1.2.0")]
     public class SpectatorLeaderboardPlugin : BaseUnityPlugin
     {
         private ConfigEntry<float> _genUpdateInterval;
@@ -109,20 +109,25 @@ namespace SpectatorLeaderboard
             try 
             {
                 var currentGolfers = GameObject.FindObjectsByType<PlayerGolfer>(FindObjectsSortMode.None)
-                    .Where(p => p != null && p.PlayerInfo != null && p.OwnBall != null)
-                    .Select(p => {
-                        float bDist = Vector3.Distance(p.OwnBall.transform.position, holePos);
-                        bool gameFinished = false;
-                        var fField = p.GetType().GetField("finishedHole", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (fField != null) gameFinished = (bool)fField.GetValue(p);
+                .Where(p => p != null && p.PlayerInfo != null && p.OwnBall != null)
+                .Select(p => {
+                    // 1. Calculate Ball Distance for the UI display
+                    float bDist = Vector3.Distance(p.OwnBall.transform.position, holePos);
+                    
+                    // 2. HYBRID FINISH LOGIC
+                    bool officialScored = p.MatchResolution == PlayerMatchResolution.Scored;
+                    bool ballInHole = p.OwnBall != null && p.OwnBall.isInHole;
 
-                        return new { 
-                            Name = GetPlayerName(p.PlayerInfo), 
-                            PDist = Vector3.Distance(p.transform.position, holePos),
-                            BDist = bDist,
-                            Done = gameFinished || bDist <= 0.75f 
-                        };
-                    }).ToList();
+                    bool hasScored = officialScored || ballInHole;
+
+                    return new { 
+                        Name = GetPlayerName(p.PlayerInfo), 
+                        PDist = Vector3.Distance(p.transform.position, holePos),
+                        BDist = bDist,
+                        Done = hasScored
+                    };
+                }) 
+                .ToList();
 
                 // 1. Sync data and lock finish order
                 foreach (var data in currentGolfers)
@@ -134,7 +139,7 @@ namespace SpectatorLeaderboard
                         _leaderboardData.Add(entry);
                     }
 
-                    // If they just finished, record the time to lock their rank
+                    // Lock the rank if they just finished
                     if (data.Done && !entry.Finished)
                     {
                         entry.FinishOrder = Time.time;
@@ -149,16 +154,15 @@ namespace SpectatorLeaderboard
                     entry.Finished = data.Done;
                 }
 
-                // 2. Sort the persistent list
+                // 2. Sort: Finished players first (by time), then active players (by proximity)
                 _leaderboardData = _leaderboardData
-                .OrderBy(x => x.FinishOrder)      // Locked spots first
-                .ThenBy(x => x.PlayerDist)        // Use PlayerDist, not PDist
-                .ThenBy(x => x.BallDist)          // Use BallDist, not BDist
-                .Take(Mathf.Clamp(maxSize, 1, 50))
-                .ToList();
+                    .OrderBy(x => x.FinishOrder)      
+                    .ThenBy(x => x.BallDist)          
+                    .Take(Mathf.Clamp(maxSize, 1, 32))
+                    .ToList();
 
                 // 3. Assign TargetY for sliding
-                float startY = _configY.Value + 35f + 10f; // yPos + header + padding
+                float startY = _configY.Value + 45f; 
                 for (int i = 0; i < _leaderboardData.Count; i++)
                 {
                     _leaderboardData[i].TargetY = startY + (i * 25f);
@@ -166,7 +170,7 @@ namespace SpectatorLeaderboard
 
                 _leaderboardData.RemoveAll(x => !currentGolfers.Any(g => g.Name == x.Name));
             }
-            catch (Exception ex) { Logger.LogError(ex.Message); }
+            catch (Exception ex) { Logger.LogError($"Refresh Error: {ex.Message}"); }
         }
 
         private void OnGUI()

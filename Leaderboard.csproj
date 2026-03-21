@@ -4,7 +4,7 @@
         <TargetFramework>netstandard2.1</TargetFramework>
         <AssemblyName>SBG-LiveLeaderboard</AssemblyName>
         <Product>Super Battle Golf Live Leaderboard</Product>
-        <Version>1.1.1</Version>
+        <Version>1.2.0</Version>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>latest</LangVersion>
         <RestoreAdditionalProjectSources>
@@ -78,9 +78,8 @@
         </Reference>
     </ItemGroup>
     <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-        <Exec Command="xcopy /Y &quot;$(TargetDir)$(TargetName).dll&quot; &quot;$(SUPER_BATTLE_GOLF_PATH)\BepInEx\plugins\&quot;" />
-    </Target>
-    <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-        <Exec Command="xcopy /Y &quot;$(TargetPath)&quot; &quot;$(ProjectDir)ThunderstoreUploads\SBG-LiveLeaderboard_ThunderStore\&quot;" />
-    </Target>
+    <Exec Command="xcopy /Y &quot;$(TargetPath)&quot; &quot;$(SUPER_BATTLE_GOLF_PATH)\BepInEx\plugins\&quot;" />
+    
+    <Exec Command="xcopy /Y &quot;$(TargetPath)&quot; &quot;$(ProjectDir)ThunderstoreUploads\SBG-LiveLeaderboard_ThunderStore\&quot;" />
+</Target>
 </Project>

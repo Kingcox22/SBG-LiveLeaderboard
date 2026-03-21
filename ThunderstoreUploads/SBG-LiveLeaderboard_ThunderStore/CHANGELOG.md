@@ -1,3 +1,5 @@
+## 1.2.0
+* Uses in game logic for when someone is "Finished"
 ## 1.1.1
 * Future Proofing (No Visible Changes)
 ## 1.1.0
