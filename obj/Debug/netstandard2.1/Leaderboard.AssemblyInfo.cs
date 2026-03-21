@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SBG-LiveLeaderboard")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.1.1.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.1.1+96532fd6ea90a2fe9121f86d3a75a914e58f3fa4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.1.1+2a5be5feb186e90dbcbe6ec55e6424e3da12c91e")]
 [assembly: System.Reflection.AssemblyProductAttribute("Super Battle Golf Live Leaderboard")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SBG-LiveLeaderboard")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.1.1.0")]
